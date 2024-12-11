@@ -1,0 +1,39 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+netif_8023_create() {
+
+	if [[ -n $macaddr ]]
+	then
+		/sbin/nameif $interface $macaddr \
+			|| failure "Unable to set name of $interface based on $macaddr."
+	fi
+
+}
+
+netif_8023_up() {
+
+	if [[ -n $mac_replace ]]
+	then
+		ip link set dev $interface address $mac_replace \
+			|| failure "Could not set MAC to $mac_replace on interface $interface."
+	fi
+
+	ip link set dev $interface up \
+		|| failure "Could not set interface $interface up."
+
+	if [[ -n $mtu ]]
+	then
+		ip link set $interface mtu $mtu \
+			|| failure "Could not set MTU $mtu on interface $interface."
+	fi
+
+}
+
+netif_8023_down() {
+
+	ip link set dev $interface down
+
+}
+

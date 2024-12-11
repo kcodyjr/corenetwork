@@ -1,0 +1,44 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/ip"
+
+require master
+
+description="ipvlan interface"
+
+netif_ipvlan_depend() {
+
+	need "net.$master"
+
+}
+
+netif_ipvlan_start_pre() {
+
+	# FIXME test whether it's available already
+	modprobe -q ipvlan
+
+}
+
+netif_ipvlan_create() {
+
+	local mymode="$mode"
+
+	if [[ -z $mymode ]]
+	then
+		mymode="l3s private"
+	fi
+
+	ip link add name $interface link $(get_interface_names $master) type ipvlan mode $mymode \
+		|| failure "Unable to create ipvlan interface $interface."
+
+}
+
+netif_ipvlan_destroy() {
+
+	ip link del dev $interface
+
+}
+

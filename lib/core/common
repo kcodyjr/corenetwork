@@ -1,0 +1,144 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+# determine the interface name
+interface="${RC_SVCNAME#net.}"
+# if it doesn't begin with net., then look for netif.
+[[ $interface == $RC_SVCNAME ]] && interface="${RC_SVCNAME#netif.}"
+
+# we will refer to this a lot
+NETIFDIR="${RC_PREFIX}/lib/netif"
+
+
+##
+## display macros
+##
+
+# FIXME: portability?
+
+HILITE="[36;01m"
+NOLITE="[0m"
+
+
+##
+## helper functions
+##
+
+function is_gendep_phase() {
+	[[ ${BASH_SOURCE[-1]} =~ gendep ]]
+}
+
+function _eerror() {
+	eerror "$@" 2>&1
+}
+
+function failure() {
+
+	is_gendep_phase && exit -1
+
+	_eerror "$@"
+
+	exit -1
+}
+
+function require() {
+	local -a missing
+	local envname
+
+	for envname in $*
+	do 
+		if [[ -z ${!envname} ]]
+		then
+			missing+=(${envname})
+		fi
+	done
+
+	if [[ -n $missing ]]
+	then
+		is_gendep_phase && exit -1
+		_eerror ''
+		_eerror "ERROR: Required configuration variable(s) are missing:"
+		_eerror ''
+		for envname in ${missing[@]}
+		do
+			_eerror "    ${HILITE}${envname}${NOLITE}"
+		done
+		_eerror ''
+		_eerror "Please correct your configuration to address this issue."
+		_eerror ''
+		exit -1
+	fi
+
+}
+
+function prohibit() {
+	local -a present
+	local envname
+
+	for envname in $*
+	do
+		if [[ -n ${!envname} ]]
+		then
+			present+=($envname)
+		fi
+	done
+
+	if [[ ${#present[@]} -gt 1 ]]
+	then
+		is_gendep_phase && exit -1
+		_eerror ''
+		_eerror "ERROR: These configuration variables cannot coexist:"
+		_eerror ''
+		for envname in ${present[@]}
+		do
+			_eerror "    ${HILITE}${envname}${NOLITE}"
+		done
+		_eerror ''
+		_eerror "Please correct your configuration to address this issue."
+		_eerror ''
+		exit -1
+	fi
+}
+
+
+##
+## create the debug trace
+##
+
+[[ -d "${RC_PREFIX}/run/netif" ]] || mkdir -p "${RC_PREFIX}/run/netif"
+
+if is_gendep_phase
+then
+	TR_CMD="gendep"
+else
+	TR_CMD="$RC_CMD"
+fi
+
+exec 2> "${RC_PREFIX}/run/netif/${interface}.${TR_CMD}.trace"
+echo *** EXEC ${interface} ${TR_CMD} >&2
+set -x
+
+
+##
+## call the correct template harness
+##
+
+if [[ -n $template ]]
+then	
+	# old style
+	source "${NETIFDIR}/core/legacy"
+
+elif [[ -n $iftype ]]
+then
+	# new style
+	source "${NETIFDIR}/core/modern"
+
+else
+	# no style
+	failure "Please specify an interface type (iftype=) for ${RC_SVCNAME}"
+fi
+
+# exit on fail, fall through on pass
+rc=$? ; [[ $rc -eq 0 ]] || exit $rc
+

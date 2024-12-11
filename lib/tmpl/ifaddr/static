@@ -1,0 +1,137 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+netif_static_up_policy() {
+	local ipnm="$1"
+
+	[[ -z $ruleprio ]]   && local ruleprio=$iptable
+
+	local ipaddr="$(echo $ipnm | cut -f1 -d/)"
+	local netwrk="$(ipcalc -nb "$ipnm" | awk '/Network/{print $2}')"
+
+	ip route add $netwrk dev $interface src $ipaddr table $iptable
+
+	if [[ -n $fwmark ]]
+	then
+		ip rule add fwmark $fwmark lookup $iptable prio $ruleprio
+	else
+		[[ -z $ruleprio_f ]] && local ruleprio_f=$ruleprio
+		[[ -z $ruleprio_t ]] && local ruleprio_t=$ruleprio
+		ip rule add from $ipaddr lookup $iptable prio $ruleprio_f
+		ip rule add to   $ipaddr lookup $iptable prio $ruleprio_t
+	fi
+
+	ip route del $netwrk dev $interface table main
+
+	true
+
+}
+
+netif_static_down_policy() {
+	local ipnm="$1"
+
+	[[ -z $ruleprio ]]   && local ruleprio=$iptable
+
+	local ipaddr="$(echo $ipnm | cut -f1 -d/)"
+
+	if [[ -n $fwmark ]]
+	then
+		ip rule del fwmark $fwmark lookup $iptable prio $ruleprio
+	else
+		[[ -z $ruleprio_f ]] && local ruleprio_f=$ruleprio
+		[[ -z $ruleprio_t ]] && local ruleprio_t=$ruleprio
+		ip rule del from $ipaddr lookup $iptable prio $ruleprio_f
+		ip rule del to   $ipaddr lookup $iptable prio $ruleprio_t
+	fi
+
+	true
+
+}
+
+netif_static_up() {
+
+	local -i count=-1
+
+	if [[ -n $iptable ]]
+	then
+		local tablestanza="table $iptable"
+	else
+		local tablestanza=''
+	fi
+
+	for ipnm in $ipaddr $ipaddrs
+	do
+		local part="$(get_ipnm_part "$ipnm")"
+		local bits="$(echo "$part" | cut -f2 -d/)"
+
+		if (( count >= 0 ))
+		then
+			local label="label $interface:$count"
+		else
+			local label=''
+		fi
+
+		if [[ -n $(if_ipv4 $ipnm) ]]
+		then
+			local bcast="broadcast $(get_option "$part" broadcast +)"
+			local is_ip4='nonempty'
+			local ipflag='-4'
+		else
+			local bcast=''
+			local is_ip4=''
+			local ipflag='-6'
+		fi
+
+		ip $ipflag addr add $part $bcast $label dev $interface \
+			|| failure "Could not add $part to $interface"
+
+		if [[ -n $is_ip4 && $bits == 32 ]]
+		then
+			for gw in $gateway $gateway4
+			do
+				ip $ipflag route add $gw dev $interface $tablestanza \
+					|| failure "Could not add interface route to $gw on $interface"
+			done
+		fi
+
+		if [[ -n $iptable ]]
+		then
+			netif_static_up_policy "$ipnm"
+		fi
+
+		(( count += 1 ))
+
+	done
+
+	for gw in $gateway $gateway4 $gateway6
+	do
+		if [[ -n $(if_ipv4 $gw) ]]
+		then
+			local ipflag='-4'
+		else
+			local ipflag='-6'
+		fi
+
+		ip $ipflag route add default via $gw $tablestanza dev $interface \
+			|| failure "Could not add default gateway $gw to $interface."
+
+	done
+
+}
+
+netif_static_down() {
+
+	local ipnm part
+
+	if [[ -n $iptable ]]
+	then
+		for ipnm in $ipaddr $ipaddrs
+		do
+			part="$(get_ipnm_part "$ipnm")"
+			netif_static_down_policy "$part"
+		done
+	fi
+
+}
+

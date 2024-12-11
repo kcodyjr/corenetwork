@@ -1,0 +1,46 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/ip"
+
+category="Ethernet"
+description="tap interface"
+
+netif_tap_start_pre() {
+
+	# FIXME test whether it's available already
+	modprobe -q tap
+
+}
+
+netif_tap_create() {
+	local perms
+
+	if [[ -n $user ]]
+	then
+		perms="user $user"
+
+	elif [[ -n $group ]]
+	then
+		perms="group $group"
+	fi
+
+	ip tuntap add dev $interface mode tap $perms \
+		|| failure "Unable to create tap interface $interface."
+
+}
+
+netif_tap_pre_up() {
+
+	ip link set $interface promisc on
+
+}
+
+netif_tap_destroy() {
+
+	ip tuntap del dev $interface mode tap
+
+}
+

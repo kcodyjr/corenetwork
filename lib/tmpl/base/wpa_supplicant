@@ -1,0 +1,84 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+
+wpa_command="/usr/sbin/wpa_supplicant"
+wpa_pidfile="/var/run/wpa_supplicant/${interface}.pid"
+
+if [[ -n $CONFIG ]]
+then
+	# rc_env_allow in /etc/rc.conf must contain CONFIG in value
+	wpa_config="/etc/wpa_supplicant/${CONFIG}"
+
+elif [[ -n $config ]]
+then
+	wpa_config="/etc/wpa_supplicant/${config}"
+
+else
+	wpa_config="/etc/wpa_supplicant/${interface}.conf"
+fi
+
+wpa_command_args="-s -B -i${interface} -P${wpa_pidfile} -c${wpa_config}"
+
+if [[ -n $driver ]]
+then
+    wpa_command_args="${wpa_command_args} -D${driver}"
+fi
+
+
+netif_wpa_supplicant_depend() {
+
+    use logger
+
+}
+
+
+netif_wpa_supplicant_start_pre() {
+
+	[[ -f $wpa_command ]] \
+		|| failure "wpa_supplicant binary not found. Did you emerge net-wireless/wpa_supplicant?"
+
+	[[ -f $wpa_config ]] \
+		|| failure "Config file ${wpa_config} for interface ${interface} not found. Aborting."
+
+}
+
+
+netif_wpa_supplicant_up() {
+	local pid
+
+	if [[ -f $wpa_pidfile ]]
+	then
+		pid=$(cat $wpa_pidfile)
+
+		if kill 0, $pid
+		then
+			failure "WPA supplicant for $interface is already running. Aborting."
+		fi
+
+	fi
+
+	if [[ ! -e ${wpa_pidfile%/*} ]]
+	then
+		mkdir -p "${wpa_pidfile%/*}"
+	fi
+
+	$wpa_command $wpa_command_args \
+		|| failure "Could not start wpa_supplicant for interface $interface."
+
+}
+
+
+netif_wpa_supplicant_down() {
+
+	if [[ ! -f $wpa_pidfile ]]
+	then
+		failure "WPA supplicant for $interface doesn't seem to be running. Aborting."
+	fi
+
+	start-stop-daemon --stop --exec $wpa_command --pidfile $wpa_pidfile
+
+}
+
+

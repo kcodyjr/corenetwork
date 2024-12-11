@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/sriov"
+inherit "base/8021q"
+inherit "base/ip"
+
+category="Ethernet"
+

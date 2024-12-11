@@ -1,0 +1,44 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/ip"
+
+category="IPv6 broker"
+description="tunnel"
+
+netif_ipv6_broker_create() {
+
+	ip tunnel add $interface mode sit remote $remote local $local ttl 255 \
+		|| failure "Unable to add tunnel $interface to $remote."
+
+}
+
+netif_ipv6_broker_up() {
+
+	ip addr add $ipaddr dev $interface \
+		|| failure "Unable to add IP address $ipaddr to tunnel $interface."
+
+}
+
+netif_ipv6_broker_post_up() {
+
+	ip route add ::/0 dev $interface \
+		|| failure "Unable to add default route to tunnel $interface."
+
+}
+
+netif_ipv6_broker_pre_down() {
+
+	ip route del ::/0 dev $interface
+
+}
+
+netif_ipv6_broker_destroy() {
+
+	ip tunnel del $interface
+
+}
+
+require local remote
+

@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+# abort immediately when called directly
+[[ $RC_SVCNAME == netif.tmpl ]] && exit 0
+
+# okay, actually called for an interface
+source "${RC_PREFIX}/lib/netif/core/common"
+
+# exit on failure, fall through on success
+rc=$? ; [[ $rc -eq 0 ]] || exit $rc
+

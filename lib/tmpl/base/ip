@@ -1,0 +1,115 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+##
+## hook functions
+##
+
+netif_ip_start_pre() {
+
+	if [[ ! -d /proc/sys/net/ipv4 ]]
+	then
+		modprobe -q ipv4
+	fi
+
+	if [[ ! -d /proc/sys/net/ipv6 ]]
+	then
+		modprobe -q ipv6
+	fi
+
+}
+
+netif_ip_pre_up() {
+
+	ip addr flush dev $interface scope global > /dev/null 2>&1
+
+}
+
+netif_ip_down() {
+
+	ip addr flush dev $interface scope global > /dev/null 2>&1
+
+}
+
+
+##
+## helper functions
+##
+
+# if_ipv4 will accept something like 1.2.3.4/24;broadcast=1.2.3.255 and return a non-null string
+# if the address appears to be an ipv4 address.
+
+if_ipv4() {
+	echo "${1%%/*}" | awk '/[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*/ {print $1}'
+}
+
+ezdns() {
+	# This function generates a resolv.conf file, which ezresolv() passes to resolvconf
+	[ -n "$domain" ] && echo "domain $domain"
+	[ -n "$search" ] && echo "search $search"
+	for ns in $nameservers; do
+		echo "nameserver $ns"
+	done
+}
+
+ezresolv() {
+	# This function calls resolvconf (openresolv) with the correct resolv.conf passed as a here-file
+	if [ "$1" = "add" ]; then
+		[ -z "`ezdns`" ] && return
+		resolvconf -a $interface << EOF || die "Problem adding DNS info for $interface"
+`ezdns`
+EOF
+	else
+		resolvconf -d $interface > /dev/null 2>&1
+	fi
+}
+
+ezroute() {
+	# This function processes a semi-colon delimited list of routes set in $route, and also
+	# supports the $gateway variable for setting a default IP route. 
+	local rest
+	if [ "$1" = "4" ]; then
+		rest="$route"
+		[ -n "$gateway" ] && rest="$rest; default via $gateway dev $interface"
+	elif [ "$1" = "6" ]; then
+		rest="$route6"
+		[ -n "$gateway6" ] && rest="$rest; default via $gateway6 dev $interface"
+	fi
+	if [ -n "$rest" ]; then
+		# must end in a semi-colon before we start processing:
+		rest="$rest;"
+		while [ "$rest" != "" ]
+		do
+			# first = current route command; rest = remainder
+			first="${rest%%;*}"
+			rest="${rest#*;}"
+			# trim any trailing or leading spaces:
+			first=${first%% }; first=${first## }
+			[ "$first" != "" ] && ip -$1 route $2 $first
+			[ "$2" = "add" ] && [ $? -ne 0 ] && die "Couldn't set route: $first"
+		done
+	fi
+}
+
+ezrule() {
+	# This function processes a semi-colon delimited list of rules set in $rule
+	local rest
+	if [ "$1" = "4" ]; then
+		rest="$rule"
+	elif [ "$1" = "6" ]; then
+		rest="$rule6"
+	fi
+	if [ -n "$rest" ]; then
+		# ensure a terminating semi-colon
+		rest="$rest;"
+		while [ "$rest" != "" ]; do
+			first="${rest%%;*}"
+			rest="${rest#*;}"
+			first=${first%% }; first=${first## }
+			[ "$first" != "" ] && ip -$1 rule $2 $first
+			[ "$2" = "add" ] && [ $? -ne 0 ] && die "Couldn't set rule: $first"
+		done
+	fi
+}
+

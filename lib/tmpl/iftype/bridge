@@ -1,0 +1,57 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/8021q"
+inherit "base/ip"
+
+category="Ethernet"
+description="bridge"
+
+netif_bridge_depend() {
+	local slave
+
+	before libvirtd
+
+	for slave in $slaves
+	do
+		want $slave
+	done
+
+}
+
+netif_bridge_create() {
+
+	brctl addbr $interface \
+		|| failure "Could not create bridge $interface."
+
+}
+
+netif_bridge_destroy() {
+
+	brctl delbr $interface \
+		|| ewarn "Could not delete bridge $interface."
+
+}
+
+netif_bridge_pre_up() {
+	local slave
+
+	for slave in $(get_interface_names $slaves)
+	do
+		brctl addif $interface $slave \
+			|| failure "Could not add interface $slave to bridge $interface."
+	done
+
+	brctl setfd $interface ${fd-0} \
+		|| failure "Could not set forwarding delay ${fd-0} on bridge $interface."
+
+	if [[ -n stp ]]
+	then
+		brctl stp $interface $stp \
+			|| failure "Could not set stp $stp on bridge $interface."
+	fi
+
+}
+

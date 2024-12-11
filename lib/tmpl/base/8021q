@@ -1,0 +1,95 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+netif_8021q_depend() {
+
+	if [[ $vlanmode != off ]]
+	then
+		need_trunk_init || failure "Init script not found for trunk interface (${trunk})."
+	fi
+
+}
+
+
+netif_8021q_start_pre() {
+
+	if [[ $vlanmode == kernel ]]
+	then
+		[[ -d /proc/net/vlan ]] || modprobe -q 8021q
+		[[ -d /proc/net/vlan ]] || failure "802.1q VLAN support is not present in the kernel."
+	fi
+
+}
+
+netif_8021q_create() {
+
+	if [[ $vlanmode == kernel ]]
+	then
+		ip link add name $interface link $trunk_int type vlan id $vlan \
+			|| failure "Could not create VLAN ${vlan} interface on ${trunk}."
+	fi
+
+}
+
+netif_8021q_destroy() {
+
+	if [[ $vlanmode == kernel ]]
+	then
+		ip link delete $interface \
+			|| ewarn "Could not delete VLAN ${vlan} interface from ${trunk}."
+	fi
+
+}
+
+
+##
+## work functions
+##
+
+need_trunk_init() {
+	local file
+
+	for try in "$trunk" "net.${trunk}" "netif.${trunk}"
+	do
+		if [[ -e "${RC_PREFIX}/etc/init.d/${try}" ]]
+		then
+			need "$try"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+
+
+##
+## auto-detection
+##
+
+if [[ -z $vlanmode ]]
+then
+	if [[ -z $trunk ]]
+	then
+		vlan="${interface##*.}"
+		trunk="${interface%.*}"
+		if [[ $vlan == $interface ]]
+		then
+			unset vlan trunk
+			vlanmode=off
+		else
+			vlanmode=kernel
+		fi
+	else
+		require vlan
+		vlanmode=kernel
+	fi
+fi
+
+if [[ $vlanmode == kernel ]]
+then
+	trunk_int="$(get_trunk_int "$trunk")"
+	description="VLAN interface"
+fi
+

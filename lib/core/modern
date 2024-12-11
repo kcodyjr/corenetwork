@@ -1,0 +1,210 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2018 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+# TODO - generate cached config for /etc/init.d/foo, use them for starting and stopping
+# rather than running "live" commands. This way "stop" will work correctly at all times.
+
+
+##
+## stacked template implementation
+##
+
+declare -A INHERITED
+
+inherit() {
+	local path="$1"
+	local name="${path/*\/}"
+
+	local file="${NETIFDIR}/tmpl/${path}"
+
+	if [[ -n ${INHERITED[$file]} ]]
+	then
+		return 0
+	fi
+
+	INHERITED[$file]=1
+
+	[[ -r $file ]] || failure "netif template $file not found"
+
+	source "$file"
+
+	TMPL_UP="${TMPL_UP} ${name}"
+	TMPL_DN="${name} ${TMPL_DN}"
+
+	return 0
+}
+
+call_if_exists() {
+	local func="$1"
+	shift
+
+    if LC_ALL=C type "$func" 2>/dev/null | grep -q 'is a function'
+	then
+		"$func" "$@"
+		return $?
+	fi
+	return 0
+}
+
+marshal_up() {
+	local func="$1"
+	local tmpl
+	shift
+
+	for tmpl in $TMPL_UP
+	do
+		call_if_exists "netif_${tmpl//-/_}_${func}" "$@"
+	done
+}
+
+marshal_dn() {
+	local func="$1"
+	local tmpl
+	shift
+
+	for tmpl in $TMPL_DN
+	do
+		call_if_exists "netif_${tmpl}_${func}" "$@"
+	done
+}
+
+
+##
+## openrc functions
+##
+
+depend() {
+	need localmount
+	before net-online
+	marshal_up depend
+}
+
+start_pre() {
+	marshal_up start_pre
+}
+
+start() {
+	ebegin "${NETSTRING} up"
+	marshal_up create
+	marshal_up pre_up
+	marshal_up up
+	marshal_up post_up
+	eend 0
+}
+
+stop() {
+	ebegin "${NETSTRING} down"
+	marshal_dn pre_down
+	marshal_dn down
+	marshal_dn post_down
+	marshal_dn destroy
+	eend 0
+}
+
+stop_post() {
+	marshal_dn stop_post
+}
+
+
+##
+## helper functions
+##
+
+# strips off the semicolon and anything after it
+# given a string like "foo;bar;more" returns "foo"
+
+get_ipnm_part() {
+	echo "${1%%;*}"
+}
+
+# we encode the broadcast like this: 1.2.3.4/24;broadcast=1.2.3.255;foo=bar;x;y;z
+# we call the following function like this:
+# 'get_option "$ipnm" broadcast +'
+# it will return "1.2.3.255" if defined, and a '+' if not defined.
+# 'get_option "1.2.3.4;a;b;c" a false' will return 'true' if "a" is defined as a keyword, and "false" (default value)
+# otherwise.
+
+get_option() {
+	local full="$1"
+	local ipnm="$(get_ipnm_part $full)"
+	local oldparts="${full:${#ipnm}}"
+	local trim
+	while true; do
+		[ "${oldparts:$((${#oldparts}-1))}" = ";" ] && oldparts="${oldparts:0:$((${#oldparts}-1))}" && continue
+		count=$(($count + 1))
+		thispart="${oldparts##*;}"
+		varname="${thispart%%=*}"
+		if [ "$varname" = "$thispart" ] && [ "$thispart" = "$2" ]; then
+			echo "true"
+			return
+		fi
+		if [ "$varname" != "$thispart" ] && [ "$varname" = "$2" ]; then
+			echo "${thispart#*=}"
+			return
+		fi
+		[ -z "$thispart" ] && break
+		trim=$(( ${#oldparts} - ${#thispart} ))
+		oldparts="${oldparts:0:${trim}}"
+		[ -z "${oldparts}" ] && break
+	done
+	# return default (if any)
+	echo "$3"
+}
+
+# This removes the leading part of the network script, up to and including the first '.', to grab the interface name
+
+get_interface_names() {
+	for ifn in $*; do
+		echo ${ifn#*.}
+	done
+}
+
+# We are migrating from having trunk=eth0 to trunk=net.eth0. This following function is used to implement backwards
+# compatibility. If we see $trunk existing in /etc/init.d, then we assume it has a net. or netif. prefix we need to
+# remove to get the interface name. Otherwise, we assume it contains the interface name itself, such as eth0, and
+# use it as-is.
+
+get_trunk_int() {
+	if [ -e /etc/init.d/$1 ]; then
+		echo $(get_interface_names $1)
+	else
+		echo $1
+	fi
+}
+
+
+##
+## initialization
+##
+
+_initialize_loader() {
+	local kind="$1"
+	shift
+	local tmp
+
+	for tmp in "$@"
+	do
+		inherit "$kind/$tmp"
+	done
+
+}
+
+[[ -z $ifaddr ]] && ifaddr=static
+
+_initialize_loader iftype $iftype
+_initialize_loader ifaddr $ifaddr
+_initialize_loader option $option
+
+if [[ -z $category ]]
+then
+	category=Network
+fi
+
+if [[ -z $description ]]
+then
+	description=interface
+fi
+
+NETSTRING="$category $description ${HILITE}${interface}${NOLITE}"
+

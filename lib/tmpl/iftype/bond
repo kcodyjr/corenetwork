@@ -1,0 +1,34 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/8021q"
+inherit "base/ip"
+
+category="Ethernet"
+description="bond"
+
+netif_bond_start_pre() {
+
+	if ! which ifenslave >/dev/null 2>&1
+	then
+		failure "ifenslave binary not found. Did you install net-misc/ifenslave?"
+	fi
+
+}
+
+netif_bond_pre_up() {
+
+	ifenslave $interface $(get_interface_names $slaves)
+
+}
+
+netif_bond_post_down() {
+
+	ifenslave -d $interface $(get_interface_names $slaves)
+
+}
+
+require slaves
+

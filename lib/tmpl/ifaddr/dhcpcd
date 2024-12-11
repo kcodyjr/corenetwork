@@ -1,0 +1,47 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+PIDFILE="/var/run/dhcpcd-${interface}.pid"
+
+netif_dhcpcd_start_pre() {
+
+	[[ -z $DHCPCD ]] && DHCPCD=$(which dhcpcd)
+
+	if [[ ! -x $DHCPCD ]]
+	then
+		failure "dhcpcd binary not found. Did you emerge net-misc/dhcpcd?"
+	fi
+
+	if [[ -f $PIDFILE ]]
+	then
+		local -i pid=$(cat "$PIDFILE")
+
+		if kill 0, $pid >/dev/null 2>&1
+		then
+			failure "dhcpcd is already running for $description $interface. Aborting."
+		fi
+
+		rm -f $PIDFILE
+
+	fi
+
+}
+
+netif_dhcpcd_up() {
+
+    $DHCPCD --quiet $interface
+
+}
+
+netif_dhcpcd_pre_down() {
+
+	if [[ ! -f $PIDFILE ]]
+	then
+		return
+	fi
+
+	start-stop-daemon --stop --exec "$DHCPCD" --pidfile "$PIDFILE"
+
+}
+

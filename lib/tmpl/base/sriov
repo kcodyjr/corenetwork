@@ -1,0 +1,215 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+
+##
+## hook functions
+##
+
+netif_sriov_start_pre() {
+
+	[[ -n $numvfs ]] && sriov_test_numvfs_sanity
+	[[ -n $virtfn ]] && sriov_test_virtfn_sanity
+
+}
+
+netif_sriov_create() {
+
+	# if $interface is a virtual function
+	[[ -n $virtfn ]] && sriov_create_virtfn
+
+}
+
+netif_sriov_pre_up() {
+
+	# if $interface is a physical function
+	[[ -n $numvfs ]] && sriov_set_numvfs $numvfs
+
+}
+
+netif_sriov_post_down() {
+
+	# if $interface is a physical function
+	[[ -n $numvfs ]] && sriov_set_numvfs 0
+
+}
+
+netif_sriov_destroy() {
+
+	# if $interface is a virtual function
+	[[ -n $virtfn ]] && sriov_destroy_virtfn
+
+}
+
+
+##
+## test functions
+##
+
+sriov_test_numvfs_sanity() {
+
+	if [[ -z $sriov_maxvfs ]]
+	then
+		failure "Interface $interface does not support SR-IOV virtual functions."
+	fi
+
+	if (( numvfs > sriov_maxvfs ))
+	then
+		failure "Interface ${interface} only supports ${sriov_maxvfs} virtual functions."
+	fi
+
+	if (( numvfs < 0 ))
+	then
+		failure "Illegal number of virtual functions ($numvfs) on interface ${interface}."
+	fi
+
+	if (( numvfs < 1 ))
+	then
+		numvfs=$sriov_maxvfs
+	fi
+
+}
+
+sriov_test_virtfn_sanity() {
+
+	if (( virtfn < 0 ))
+	then
+		failure "Illegal virtual function number ($virtfn) on interface ${interface}."
+	fi
+
+	if (( virtfn > sriov_numvfs ))
+	then
+		failure "Trunk interface ${trunk_int} only has ${sriov_numvfs} virtual functions."
+	fi
+
+}
+
+
+##
+## work functions
+##
+
+sriov_set_numvfs() {
+	local -i wanted="$1"
+
+	local file="${sriov_physfn_path}/device/sriov_numvfs"
+	local -i current=$(cat "$file")
+
+	(( wanted == current )) && return 0
+
+	echo 0 > "$file"
+
+	(( wanted == 0 )) && return 0
+
+	echo $wanted > "$file"
+
+	return $?
+}
+
+sriov_get_virtfn_dev() {
+
+	local path="${sriov_virtfn_path}/net"
+
+	[[ -d $path ]] || return 1
+
+	ls "$path" | head -n 1
+
+}
+
+sriov_create_virtfn_macaddr() {
+
+	local trunk_mac="$(ip link show dev ${trunk_int} | awk '/link\/ether/{print $2}')"
+	: ${trunk_mac:=00:00:00:00:00:00}
+
+	local oct1="02"
+	local oct2="$(printf "%02x" $(( ( virtfn & 0xFF00 ) >> 8 )) )"
+	local oct3="$(printf "%02x" $(( virtfn & 0xFF )) )"
+	local oct4="$(echo $trunk_mac | cut -f4 -d:)"
+	local oct5="$(echo $trunk_mac | cut -f5 -d:)"
+	local oct6="$(echo $trunk_mac | cut -f6 -d:)"
+
+	mac_replace="$oct1:$oct2:$oct3:$oct4:$oct5:$oct6"
+
+}
+
+sriov_create_virtfn() {
+
+	if [[ -n $vlan ]]
+	then
+		ip link set $trunk_int vf $virtfn vlan $vlan qos ${priority-0} \
+			|| failure "Could not set VLAN ${vlan} on ${trunk} VF ${virtfn}."
+	fi
+
+	[[ -z $mac_replace ]] && sriov_create_virtfn_macaddr
+
+	ip link set $trunk_int vf $virtfn mac $mac_replace \
+		|| failure "Could not set MAC ${mac_replace} on ${trunk} VF ${virtfn}."
+
+	if [[ -n $spoofchk ]]
+	then
+		ip link set $trunk_int vf $virtfn spoofchk $spoofchk \
+			|| failure "Could not set spoofchk ${spoofchk} on ${trunk} VF ${virtfn}."
+	fi
+
+	local virtfn_dev="$(sriov_get_virtfn_dev)"
+
+	if [[ -z $virtfn_dev ]]
+	then
+		eend 0
+		exit 0
+	fi
+
+	if [[ $virtfn_dev != $interface ]]
+	then
+		# cause the driver to wake up to the new mac
+		ip link set dev $virtfn_dev up
+		ip link set dev $virtfn_dev down
+		/sbin/nameif "$interface" "$mac_replace"
+	fi
+
+	# prevent base/8023 trying to re-set it
+	unset mac_replace
+
+}
+
+sriov_destroy_virtfn() {
+
+	ip link set ${trunk_int} vf ${virtfn} vlan 0
+	ip link set ${trunk_int} vf ${virtfn} mac "00:00:00:00:00:00"
+
+}
+
+
+##
+## config variables
+##
+
+prohibit numvfs virtfn
+
+if [[ -n $numvfs || -n $virtfn ]]
+then
+	if [[ -z $virtfn ]]
+	then
+		trunk_int="$interface"
+		[[ -z $description ]] && description="physical function"
+	else
+		require trunk
+		trunk_int="$(get_trunk_int "$trunk")"
+		sriov_virtfn_path="/sys/class/net/${trunk_int}/device/virtfn${virtfn}"
+		vlanmode="sriov"
+		if [[ -n $macaddr ]]
+		then
+			mac_replace="$macaddr"
+			unset macaddr
+		fi
+		[[ -z $description ]] && description="virtual function"
+	fi
+	sriov_physfn_path="/sys/class/net/${trunk_int}"
+	if [[ -r "${sriov_physfn_path}/device/sriov_numvfs" ]]
+	then
+		sriov_maxvfs=$(cat "${sriov_physfn_path}/device/sriov_totalvfs")
+		sriov_numvfs=$(cat "${sriov_physfn_path}/device/sriov_numvfs")
+	fi
+fi
+

@@ -442,7 +442,7 @@ elif [ -n "$virtfn" ]; then
 	# trunk/vlan ID configures sr-iov virtual function
 	vlanmode="sriov"
 	require trunk
-else
+elif [ "$vlanmode" != "off" ]; then
 	# trunk/vlan ID specified by user in config
 	: ${vlanmode:="custom"} #don't overwrite vlanmode if already specified
 	require vlan

@@ -1,0 +1,36 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/ip"
+
+require remote
+
+description="tunnel (GRE)"
+
+netif_gre_start_pre() {
+
+	# FIXME test whether it's available already
+	modprobe -q ip_gre
+
+}
+
+netif_gre_create() {
+
+	ip tunnel add $interface mode gre remote $remote local $local ttl 255 \
+		|| failure "Unable to create $description $interface."
+
+}
+
+netif_gre_destroy() {
+
+	ip tunnel del $interface
+
+}
+
+if [[ -z $local ]]
+then
+	local="$(ip route get $remote | head -n 1 | sed 's/.*src //;s/\ .*//')"
+fi
+

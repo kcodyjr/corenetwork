@@ -1,0 +1,37 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/ip"
+
+require base mode
+
+description="macvlan interface"
+
+netif_macvlan_depend() {
+
+	need $base
+
+}
+
+netif_macvlan_start_pre() {
+
+	# FIXME test whether it's available already
+	modprobe -q macvlan
+
+}
+
+netif_macvlan_create() {
+
+	ip link add name $interface link $(get_interface_names $base) type macvlan mode $mode \
+		|| failure "Unable to create macvlan interface $interface."
+
+}
+
+netif_macvlan_destroy() {
+
+	ip link del dev $interface
+
+}
+

@@ -1,0 +1,53 @@
+#!/sbin/openrc-run
+# Copyright (c) 2007-2020 Funtoo Solutions, Inc.
+# All rights reserved. Released under the 2-clause BSD license.
+
+inherit "base/8023"
+inherit "base/ip"
+
+require base mode
+
+description="macvtap interface"
+
+netif_macvtap_depend() {
+
+	need $base
+
+}
+
+netif_macvtap_start_pre() {
+
+	# FIXME test whether it's available already
+	modprobe -q macvtap
+
+}
+
+netif_macvtap_create() {
+	local perms
+
+	ip link add name $interface link $(get_interface_names $base) type macvtap mode $mode \
+		|| failure "Unable to create macvtap interface $interface."
+
+	if [[ -n $user ]]
+	then
+		perms="$user"
+	fi
+
+	if [[ -n $group ]]
+	then
+		perms="$perms:$group"
+	fi
+
+	if [[ -n $perms ]]
+	then
+		chown $perms /dev/tap$(cat /sys/class/net/$interface/ifindex)
+	fi
+
+}
+
+netif_macvtap_destroy() {
+
+	ip link del dev $interface
+
+}
+
