@@ -4,8 +4,8 @@ all:
 
 install:
 	mkdir -p $(DESTDIR)/etc/init.d
-	cp init.d/net* $(DESTDIR)/etc/init.d
-	chmod +x $(DESTDIR)/etc/init.d
+	cp init.d/netif.tmpl $(DESTDIR)/etc/init.d
+	chmod +x $(DESTDIR)/etc/init.d/netif.tmpl
 	mkdir -p $(DESTDIR)/etc/netif.d
 	cp netif.d/* $(DESTDIR)/etc/netif.d
 	mkdir -p $(DESTDIR)/lib/netif
